@@ -1,0 +1,107 @@
+name: Deployment
+
+on:
+  push:
+
+jobs:
+  setup-env:
+    runs-on: ubuntu-latest
+    outputs:
+      FUSE_ENV: ${{ steps.env-var-export.outputs.FUSE_ENV }}
+      AWS_REGION: ${{ steps.env-var-export.outputs.AWS_REGION }}
+      CLOUDFORMATION_STACK_NAME: ${{ steps.env-var-export.outputs.CLOUDFORMATION_STACK_NAME }}
+      ECR_REPOSITORY: ${{ steps.env-var-export.outputs.ECR_REPOSITORY }}
+      APP_NAME: ${{ steps.env-var-export.outputs.APP_NAME }}
+      IMAGE_NAME: ${{ steps.env-var-export.outputs.IMAGE_NAME }}
+      AWS_ROLE: ${{ steps.env-var-export.outputs.AWS_ROLE }}
+      NEW_VERSION_NUMBER: ${{ steps.increment-version.outputs.NEW_VERSION_NUMBER }}
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ needs.update-version.outputs.commit_hash }}
+
+      - name: Increment version
+        id: increment-version
+        run: |
+          echo "::set-output name=NEW_VERSION_NUMBER::0.0.$(git rev-list HEAD --count).${{github.run_number}}"
+
+      #Set fuse env based on branch
+      - name: (Default) Set FUSE_ENV to FEATURE
+        run: |
+          echo "FUSE_ENV=DEV" >> $GITHUB_ENV
+      - name: Set FUSE_ENV to PROD
+        if: endsWith(github.ref, '/master')
+        run: |
+          echo "FUSE_ENV=PROD" >> $GITHUB_ENV
+      - name: Set FUSE_ENV to STG
+        if: endsWith(github.ref, '/staging')
+        run: |
+          echo "FUSE_ENV=STG" >> $GITHUB_ENV
+      - name: Set FUSE_ENV to DEV
+        if: endsWith(github.ref, '/develop')
+        run: |
+          echo "FUSE_ENV=DEV" >> $GITHUB_ENV
+
+      #Property vars from file
+      #Grabs variables from .property files based on environment
+      - name: Assign ${{env.FUSE_ENV}} environment variables from property file
+        run: |
+          cat ci/params/build-variables-${{env.FUSE_ENV}}.properties >> $GITHUB_ENV
+
+      - name: Export env variables
+        id: env-var-export
+        run: |
+          echo "::set-output name=FUSE_ENV::${{env.FUSE_ENV}}"
+          echo "::set-output name=AWS_ECS_CLUSTER_NAME::${{env.AWS_ECS_CLUSTER_NAME}}"
+          echo "::set-output name=AWS_ECS_SERVICE_NAME::${{env.AWS_ECS_SERVICE_NAME}}"
+          echo "::set-output name=AWS_ECS_ROLE_NAME::${{env.AWS_ECS_ROLE_NAME}}"
+          echo "::set-output name=AWS_LOG_GROUP_NAME::${{env.AWS_LOG_GROUP_NAME}}"
+          echo "::set-output name=AWS_REGION::${{env.AWS_REGION}}"
+          echo "::set-output name=APP_LABEL_NAME::${{env.APP_LABEL_NAME}}"
+          echo "::set-output name=APP_NAME::${{env.APP_NAME}}"
+          echo "::set-output name=IMAGE_NAME::${{env.IMAGE_NAME}}"
+          echo "::set-output name=REPO_NAME::${{env.REPO_NAME}}"
+          echo "::set-output name=CLOUDFORMATION_STACK_NAME::${{env.CLOUDFORMATION_STACK_NAME}}"
+          echo "::set-output name=ECR_REPOSITORY::${{env.ECR_REPOSITORY}}"
+          echo "::set-output name=AWS_ROLE::${{env.AWS_ROLE}}"
+
+      - name: Export cf parameters
+        id: cf-param-export
+        run: |
+          params=$(cat ci/params/cf-parameters-$FUSE_ENV.json | sed $'s/^\[/\[\\\n  {\\\n   \"ParameterKey\": \"ContainerTag\", \\\n   \"ParameterValue\": \"'"${{ steps.increment-version.outputs.NEW_VERSION_NUMBER }}"$'\"\\\n  },/') 
+          echo " "
+          if [ $FUSE_ENV = "DEV" ] ; then
+            echo "$params"
+          fi
+
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    needs: [ setup-env-vars ]
+    permissions:
+      contents: read
+      packages: write
+    env:
+      APP_NAME: ${{ needs.setup-env-vars.outputs.APP_NAME }}
+      ECR_REPOSITORY: ${{ needs.setup-env-vars.outputs.ECR_REPOSITORY }}
+      AWS_REGION: ${{ needs.setup-env-vars.outputs.AWS_REGION }}
+      STACK_NAME: ${{ needs.setup-env-vars.outputs.CLOUDFORMATION_STACK_NAME }}
+      FUSE_ENV: ${{ needs.setup-env-vars.outputs.FUSE_ENV }}
+      AWS_ROLE: ${{ needs.setup-env-vars.outputs.AWS_ROLE }}
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up JDK
+        uses: actions/setup-java@v1
+        with:
+          java-version: '8'
+
+      - name: Build solution with Maven
+        id: build
+        run: |
+          mvn clean install
+          echo "::set-output name=ARTIFACT::$(ls target | grep jar)"
+
+      - name: Rename jar file
+        run: mv ./target/$APP_NAME.jar ./app.jar
