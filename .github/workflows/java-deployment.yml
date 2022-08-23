@@ -77,17 +77,17 @@ jobs:
 
   build-and-deploy:
     runs-on: ubuntu-latest
-    needs: [ setup-env-vars ]
+    needs: [ setup-env ]
     permissions:
       contents: read
       packages: write
     env:
-      APP_NAME: ${{ needs.setup-env-vars.outputs.APP_NAME }}
-      ECR_REPOSITORY: ${{ needs.setup-env-vars.outputs.ECR_REPOSITORY }}
-      AWS_REGION: ${{ needs.setup-env-vars.outputs.AWS_REGION }}
-      STACK_NAME: ${{ needs.setup-env-vars.outputs.CLOUDFORMATION_STACK_NAME }}
-      FUSE_ENV: ${{ needs.setup-env-vars.outputs.FUSE_ENV }}
-      AWS_ROLE: ${{ needs.setup-env-vars.outputs.AWS_ROLE }}
+      APP_NAME: ${{ needs.setup-env.outputs.APP_NAME }}
+      ECR_REPOSITORY: ${{ needs.setup-env.outputs.ECR_REPOSITORY }}
+      AWS_REGION: ${{ needs.setup-env.outputs.AWS_REGION }}
+      STACK_NAME: ${{ needs.setup-env.outputs.CLOUDFORMATION_STACK_NAME }}
+      FUSE_ENV: ${{ needs.setup-env.outputs.FUSE_ENV }}
+      AWS_ROLE: ${{ needs.setup-env.outputs.AWS_ROLE }}
 
     steps:
       - uses: actions/checkout@v2
